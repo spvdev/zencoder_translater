@@ -227,10 +227,8 @@ class JobController extends Controller
             'finished_at' => Carbon::now(),
         ]);
 
-        return response()->json([
-            'id' => $job->id,
-            'state' => $job->state,
-        ]);
+        // Return 204 No Content for successful cancellation (Zencoder compatible)
+        return response()->noContent();
     }
 
     /**

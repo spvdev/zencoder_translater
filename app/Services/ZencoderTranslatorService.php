@@ -90,6 +90,23 @@ class ZencoderTranslatorService
     ];
 
     /**
+     * Zencoder region to AWS region mappings.
+     */
+    private const REGION_MAP = [
+        'us' => 'us-east-1',
+        'us-east' => 'us-east-1',
+        'us-west' => 'us-west-2',
+        'europe' => 'eu-west-1',
+        'eu' => 'eu-west-1',
+        'eu-dublin' => 'eu-west-1',
+        'eu-west' => 'eu-west-1',
+        'asia' => 'ap-northeast-1',
+        'asia-pacific' => 'ap-southeast-1',
+        'australia' => 'ap-southeast-2',
+        'south-america' => 'sa-east-1',
+    ];
+
+    /**
      * Translate a Zencoder job request to MediaConvert job settings.
      */
     public function translateJob(array $request): array
@@ -161,12 +178,19 @@ class ZencoderTranslatorService
     {
         $outputGroups = [];
 
-        // Separate outputs by streaming type
+        // Separate outputs by type
         $standardOutputs = [];
         $hlsOutputs = [];
         $dashOutputs = [];
+        $thumbnailOutputs = [];
 
         foreach ($outputs as $output) {
+            // Check if this is a thumbnail-only output
+            if (isset($output['thumbnails']) && !isset($output['video_codec']) && !isset($output['audio_codec'])) {
+                $thumbnailOutputs[] = $output;
+                continue;
+            }
+
             $streamingFormat = strtolower($output['streaming_delivery_format'] ?? '');
             $outputType = strtolower($output['type'] ?? '');
 
@@ -175,6 +199,10 @@ class ZencoderTranslatorService
             } elseif ($streamingFormat === 'dash') {
                 $dashOutputs[] = $output;
             } else {
+                // Check if output has embedded thumbnails config
+                if (isset($output['thumbnails'])) {
+                    $thumbnailOutputs[] = ['thumbnails' => $output['thumbnails']];
+                }
                 $standardOutputs[] = $output;
             }
         }
@@ -203,7 +231,113 @@ class ZencoderTranslatorService
             }
         }
 
+        // Build thumbnail/frame capture output group
+        if (!empty($thumbnailOutputs)) {
+            $thumbnailGroup = $this->buildThumbnailOutputGroup($thumbnailOutputs, $request);
+            if ($thumbnailGroup) {
+                $outputGroups[] = $thumbnailGroup;
+            }
+        }
+
         return $outputGroups;
+    }
+
+    /**
+     * Build a thumbnail/frame capture output group.
+     */
+    private function buildThumbnailOutputGroup(array $thumbnailOutputs, array $request): ?array
+    {
+        if (empty($thumbnailOutputs)) {
+            return null;
+        }
+
+        // Use first thumbnail config
+        $thumbConfig = $thumbnailOutputs[0]['thumbnails'] ?? [];
+        if (empty($thumbConfig)) {
+            return null;
+        }
+
+        // Determine destination
+        $destination = $thumbConfig['base_url'] ?? null;
+        if (!$destination) {
+            // Default to input path with /thumbs/ suffix
+            $inputUrl = $request['input'] ?? '';
+            $basePath = dirname($this->normalizeS3Url($inputUrl));
+            $destination = $basePath . '/thumbs/';
+        } else {
+            $destination = $this->normalizeS3Url($destination);
+            if (!str_ends_with($destination, '/')) {
+                $destination .= '/';
+            }
+        }
+
+        // Calculate frame capture settings
+        $times = $thumbConfig['times'] ?? [5]; // Default to 5 seconds
+        $interval = $thumbConfig['interval'] ?? null;
+        $number = $thumbConfig['number'] ?? null;
+
+        $frameCaptureSettings = [];
+
+        if ($interval) {
+            // Interval-based capture (every N seconds)
+            $frameCaptureSettings['FramerateDenominator'] = (int) $interval;
+            $frameCaptureSettings['FramerateNumerator'] = 1;
+        } elseif ($number && $number > 1) {
+            // Capture N frames evenly distributed
+            // MediaConvert doesn't directly support this, so we approximate
+            $frameCaptureSettings['FramerateDenominator'] = 10;
+            $frameCaptureSettings['FramerateNumerator'] = 1;
+            $frameCaptureSettings['MaxCaptures'] = (int) $number;
+        } else {
+            // Single frame capture at specific time(s)
+            // For single captures, we use a very low framerate and max captures
+            $frameCaptureSettings['FramerateDenominator'] = 1;
+            $frameCaptureSettings['FramerateNumerator'] = 1;
+            $frameCaptureSettings['MaxCaptures'] = count($times);
+        }
+
+        $frameCaptureSettings['Quality'] = $thumbConfig['quality'] ?? 80;
+
+        // Build video description for thumbnails
+        $videoDescription = [
+            'CodecSettings' => [
+                'Codec' => 'FRAME_CAPTURE',
+                'FrameCaptureSettings' => $frameCaptureSettings,
+            ],
+        ];
+
+        // Set dimensions if specified
+        if (!empty($thumbConfig['width'])) {
+            $videoDescription['Width'] = (int) $thumbConfig['width'];
+        }
+        if (!empty($thumbConfig['height'])) {
+            $videoDescription['Height'] = (int) $thumbConfig['height'];
+        }
+
+        // Build name modifier from label if provided
+        $nameModifier = '';
+        if (!empty($thumbConfig['label'])) {
+            $nameModifier = '_' . pathinfo($thumbConfig['label'], PATHINFO_FILENAME);
+        }
+
+        return [
+            'Name' => 'Thumbnails',
+            'OutputGroupSettings' => [
+                'Type' => 'FILE_GROUP_SETTINGS',
+                'FileGroupSettings' => [
+                    'Destination' => $destination,
+                ],
+            ],
+            'Outputs' => [
+                [
+                    'NameModifier' => $nameModifier ?: '_thumb',
+                    'ContainerSettings' => [
+                        'Container' => 'RAW',
+                    ],
+                    'VideoDescription' => $videoDescription,
+                ],
+            ],
+        ];
     }
 
     /**
@@ -761,5 +895,41 @@ class ZencoderTranslatorService
         }
 
         return $url;
+    }
+
+    /**
+     * Map Zencoder region to AWS region.
+     */
+    public function mapRegion(?string $zencoderRegion): string
+    {
+        if (!$zencoderRegion) {
+            return config('aws.region', 'us-east-1');
+        }
+
+        $region = strtolower($zencoderRegion);
+        return self::REGION_MAP[$region] ?? config('aws.region', 'us-east-1');
+    }
+
+    /**
+     * Get the base output path from an output configuration.
+     * Strips the filename and returns just the directory path.
+     */
+    public function getBaseOutputPath(array $output): string
+    {
+        $url = $output['url'] ?? $output['base_url'] ?? '';
+
+        if (empty($url)) {
+            return '';
+        }
+
+        $normalized = $this->normalizeS3Url($url);
+
+        // If it's already a directory (ends with /), return as-is
+        if (str_ends_with($normalized, '/')) {
+            return $normalized;
+        }
+
+        // Otherwise, get the directory portion
+        return dirname($normalized) . '/';
     }
 }

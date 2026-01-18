@@ -19,14 +19,28 @@ class WebhookService
 
     /**
      * Send a single webhook notification.
+     *
+     * @param string $url Webhook URL
+     * @param array $payload Notification payload
+     * @param string $format Payload format (json or xml)
+     * @param string|null $event Event type
+     * @param array $customHeaders Custom headers to include
      */
-    public function sendNotification(string $url, array $payload, string $format = 'json', ?string $event = null): bool
-    {
+    public function sendNotification(
+        string $url,
+        array $payload,
+        string $format = 'json',
+        ?string $event = null,
+        array $customHeaders = []
+    ): bool {
         $headers = ['Content-Type' => 'application/json'];
 
         if ($event) {
             $headers['X-Zencoder-Event'] = $event;
         }
+
+        // Merge custom headers (these can override defaults)
+        $headers = array_merge($headers, $customHeaders);
 
         $maxRetries = config('app.webhook.max_retries', 3);
 
@@ -85,11 +99,15 @@ class WebhookService
                     continue;
                 }
 
+                // Extract custom headers if provided
+                $customHeaders = $notification['headers'] ?? [];
+
                 $results[] = $this->sendNotification(
                     $url,
                     $payload,
                     $notification['format'] ?? 'json',
-                    $event
+                    $event,
+                    $customHeaders
                 );
             } else {
                 Log::warning("Invalid notification config: " . json_encode($notification));

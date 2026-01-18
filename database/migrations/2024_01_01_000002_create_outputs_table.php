@@ -45,6 +45,9 @@ return new class extends Migration
             $table->json('original_settings')->nullable();
             $table->json('notifications')->nullable();
 
+            // Thumbnail data (populated for video outputs with thumbnails)
+            $table->json('thumbnails')->nullable();
+
             // Timestamps
             $table->timestamp('submitted_at')->nullable();
             $table->timestamp('finished_at')->nullable();

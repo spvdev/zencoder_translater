@@ -36,6 +36,7 @@ class Output extends Model
         'md5_checksum',
         'original_settings',
         'notifications',
+        'thumbnails',
         'submitted_at',
         'finished_at',
     ];
@@ -48,6 +49,7 @@ class Output extends Model
     protected $casts = [
         'original_settings' => 'array',
         'notifications' => 'array',
+        'thumbnails' => 'array',
         'progress' => 'float',
         'frame_rate' => 'float',
         'submitted_at' => 'datetime',
@@ -82,7 +84,7 @@ class Output extends Model
      */
     public function toZencoderDetails(): array
     {
-        return [
+        $details = [
             'id' => $this->id,
             'label' => $this->label,
             'url' => $this->output_url,
@@ -107,6 +109,13 @@ class Output extends Model
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];
+
+        // Include thumbnails if present (Zencoder format)
+        if ($this->thumbnails) {
+            $details['thumbnails'] = $this->thumbnails;
+        }
+
+        return $details;
     }
 
     /**
