@@ -203,9 +203,28 @@ curl -X PUT http://localhost:8000/v2/jobs/123/cancel \
 
 ## AWS Setup
 
-### 1. Create IAM Role
+### S3 Bucket Structure
 
-Create an IAM role with the following trust policy:
+Based on your existing Zencoder setup, the S3 structure follows this pattern:
+
+```
+s3://your-bucket/
+├── path/to/
+│   ├── video.mov                      # Input file
+│   ├── video_zencoder.mp4             # Transcoded output (MP4)
+│   ├── video_zencoder.webm            # Transcoded output (WebM)
+│   └── video_zencoder/
+│       └── thumbs/
+│           └── {gid}_thumb.png        # Video thumbnail
+```
+
+**Note:** Input and output files typically reside in the **same bucket** with outputs having the `_zencoder` suffix.
+
+### 1. Create IAM Role for MediaConvert
+
+Create an IAM role that MediaConvert will assume to access your S3 bucket.
+
+**Trust Policy** (allows MediaConvert to assume this role):
 
 ```json
 {
@@ -222,20 +241,62 @@ Create an IAM role with the following trust policy:
 }
 ```
 
-Attach a policy with these permissions:
+**Permissions Policy** (for same bucket input/output):
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "S3ReadWrite",
       "Effect": "Allow",
       "Action": [
         "s3:GetObject",
-        "s3:PutObject"
+        "s3:PutObject",
+        "s3:PutObjectAcl"
       ],
       "Resource": [
-        "arn:aws:s3:::your-input-bucket/*",
+        "arn:aws:s3:::your-bucket/*"
+      ]
+    },
+    {
+      "Sid": "S3ListBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::your-bucket"
+      ]
+    }
+  ]
+}
+```
+
+**For separate input/output buckets:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3ReadInput",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::your-input-bucket/*"
+      ]
+    },
+    {
+      "Sid": "S3WriteOutput",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:PutObjectAcl"
+      ],
+      "Resource": [
         "arn:aws:s3:::your-output-bucket/*"
       ]
     }
@@ -243,15 +304,80 @@ Attach a policy with these permissions:
 }
 ```
 
-### 2. Get MediaConvert Endpoint
+### 2. Create the Role via AWS CLI
 
 ```bash
-aws mediaconvert describe-endpoints --region us-east-1
+# Create the role
+aws iam create-role \
+  --role-name MediaConvertRole \
+  --assume-role-policy-document file://trust-policy.json
+
+# Attach the permissions policy
+aws iam put-role-policy \
+  --role-name MediaConvertRole \
+  --policy-name MediaConvertS3Access \
+  --policy-document file://permissions-policy.json
+
+# Get the role ARN (you'll need this for MEDIACONVERT_ROLE_ARN)
+aws iam get-role --role-name MediaConvertRole --query 'Role.Arn' --output text
 ```
 
-### 3. Configure S3 Buckets
+### 3. Get MediaConvert Endpoint
 
-Ensure your S3 buckets have proper permissions for MediaConvert to read/write.
+```bash
+# For eu-west-1 (Ireland/Dublin)
+aws mediaconvert describe-endpoints --region eu-west-1
+
+# Example output:
+# {
+#   "Endpoints": [
+#     {
+#       "Url": "https://abc123xyz.mediaconvert.eu-west-1.amazonaws.com"
+#     }
+#   ]
+# }
+```
+
+### 4. Configure Environment
+
+```bash
+# .env
+AWS_ACCESS_KEY_ID=your-access-key
+AWS_SECRET_ACCESS_KEY=your-secret-key
+AWS_REGION=eu-west-1
+
+MEDIACONVERT_ENDPOINT=https://abc123xyz.mediaconvert.eu-west-1.amazonaws.com
+MEDIACONVERT_ROLE_ARN=arn:aws:iam::123456789012:role/MediaConvertRole
+
+# Same bucket for input/output
+S3_OUTPUT_BUCKET=your-bucket
+S3_OUTPUT_PREFIX=
+```
+
+### 5. S3 Bucket Policy (Optional)
+
+If your bucket is not in the same AWS account, add a bucket policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "MediaConvertAccess",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::123456789012:role/MediaConvertRole"
+      },
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:PutObjectAcl"
+      ],
+      "Resource": "arn:aws:s3:::your-bucket/*"
+    }
+  ]
+}
+```
 
 ## Project Structure
 
