@@ -749,8 +749,10 @@ aws ecs create-service \
 
 ### 9. Run Database Migrations
 
+Run migrations as a one-off ECS task **before** deploying new versions with schema changes. This approach avoids race conditions when multiple containers start simultaneously.
+
 ```bash
-# Run one-off migration task
+# Initial setup: Run migrations after creating RDS instance
 aws ecs run-task \
   --cluster zencoder-cluster \
   --task-definition zencoder-translator:1 \
@@ -760,6 +762,32 @@ aws ecs run-task \
     "containerOverrides": [{
       "name": "zencoder-translator",
       "command": ["php", "artisan", "migrate", "--force"]
+    }]
+  }'
+
+# Check migration status
+aws ecs run-task \
+  --cluster zencoder-cluster \
+  --task-definition zencoder-translator:1 \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[subnet-private1],securityGroups=[sg-ecs],assignPublicIp=DISABLED}" \
+  --overrides '{
+    "containerOverrides": [{
+      "name": "zencoder-translator",
+      "command": ["php", "artisan", "migrate:status"]
+    }]
+  }'
+
+# Rollback last migration batch (if needed)
+aws ecs run-task \
+  --cluster zencoder-cluster \
+  --task-definition zencoder-translator:1 \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[subnet-private1],securityGroups=[sg-ecs],assignPublicIp=DISABLED}" \
+  --overrides '{
+    "containerOverrides": [{
+      "name": "zencoder-translator",
+      "command": ["php", "artisan", "migrate:rollback", "--force"]
     }]
   }'
 ```
