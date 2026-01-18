@@ -1,87 +1,35 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+/vendor/
+/.idea/
+/.vscode/
+/.phpunit.cache/
+/node_modules/
 
-# C extensions
-*.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# PyInstaller
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-
-# Translations
-*.mo
-*.pot
-
-# Environments
+# Environment files
 .env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+.env.backup
+.env.production
 
-# IDEs
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
+# Laravel/Lumen specific
+/storage/*.key
+/storage/logs/*
+!/storage/logs/.gitkeep
+/storage/framework/cache/*
+!/storage/framework/cache/.gitkeep
 
 # Database
-*.db
-*.sqlite3
+/database/*.sqlite
+/database/*.sqlite-journal
 
-# Local data
-data/
-
-# Logs
-*.log
-logs/
+# Testing
+.phpunit.result.cache
+phpunit.xml
 
 # OS files
 .DS_Store
 Thumbs.db
 
-# Secrets
-*.pem
-*.key
-credentials.json
+# Composer
+composer.lock
+
+# Docker
+docker-compose.override.yml

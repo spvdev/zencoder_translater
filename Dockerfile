@@ -1,44 +1,43 @@
-# Zencoder AWS Translator API Dockerfile
-FROM python:3.11-slim
+FROM php:8.2-fpm-alpine
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+# Install dependencies
+RUN apk add --no-cache \
+    nginx \
+    supervisor \
+    sqlite \
+    && docker-php-ext-install pdo pdo_mysql
 
-# Set work directory
+# Install composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Copy composer files first for better caching
+COPY composer.json composer.lock* ./
 
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash appuser
-
-# Copy requirements first for caching
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install PHP dependencies
+RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist
 
 # Copy application code
-COPY app/ ./app/
+COPY . .
 
-# Change ownership to non-root user
-RUN chown -R appuser:appuser /app
+# Complete composer install
+RUN composer dump-autoload --optimize
 
-# Switch to non-root user
-USER appuser
+# Create required directories
+RUN mkdir -p /app/database /app/storage/logs /app/storage/framework/cache \
+    && touch /app/database/database.sqlite \
+    && chown -R www-data:www-data /app/database /app/storage
+
+# Copy nginx configuration
+COPY docker/nginx.conf /etc/nginx/http.d/default.conf
+
+# Copy supervisord configuration
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Expose port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start supervisord
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

@@ -1,6 +1,6 @@
 # Zencoder to AWS MediaConvert Translator API
 
-A drop-in replacement API that translates Zencoder API requests to AWS MediaConvert, enabling seamless migration from Zencoder to AWS for video transcoding.
+A drop-in replacement API built with Laravel Lumen that translates Zencoder API requests to AWS MediaConvert, enabling seamless migration from Zencoder to AWS for video transcoding.
 
 ## Overview
 
@@ -10,16 +10,18 @@ This middleware API provides a Zencoder-compatible interface that translates tra
 
 - **Zencoder API v2 Compatibility**: Supports core Zencoder API endpoints
 - **AWS MediaConvert Backend**: Leverages AWS MediaConvert for transcoding
-- **Job Tracking**: Persistent job tracking with SQLite/PostgreSQL
+- **Job Tracking**: Persistent job tracking with SQLite/MySQL/PostgreSQL
 - **Webhook Support**: Zencoder-compatible webhook notifications
 - **Multiple Output Formats**: MP4, WebM, HLS, DASH, and more
 - **Docker Ready**: Easy deployment with Docker and docker-compose
+- **Built with Lumen**: Lightweight, high-performance PHP framework
 
 ## Quick Start
 
 ### Prerequisites
 
-- Python 3.11+
+- PHP 8.1+
+- Composer
 - AWS account with MediaConvert access
 - S3 buckets for input/output files
 - IAM role for MediaConvert
@@ -32,26 +34,26 @@ git clone <repository-url>
 cd zencoder_translater
 ```
 
-2. Create a virtual environment:
+2. Install dependencies:
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+composer install
 ```
 
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Configure environment:
+3. Configure environment:
 ```bash
 cp .env.example .env
 # Edit .env with your settings
 ```
 
+4. Create the database:
+```bash
+touch database/database.sqlite
+php artisan migrate
+```
+
 5. Run the server:
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+php -S localhost:8000 -t public
 ```
 
 ### Docker Deployment
@@ -82,7 +84,7 @@ docker run -p 8000:8000 --env-file .env zencoder-translator
 | `AWS_REGION` | us-east-1 | AWS region |
 | `MEDIACONVERT_ENDPOINT` | (auto) | MediaConvert endpoint URL |
 | `S3_INPUT_BUCKET` | (none) | Default input bucket |
-| `DATABASE_URL` | sqlite | Database connection string |
+| `DB_CONNECTION` | sqlite | Database driver |
 
 See `.env.example` for all configuration options.
 
@@ -251,6 +253,58 @@ aws mediaconvert describe-endpoints --region us-east-1
 
 Ensure your S3 buckets have proper permissions for MediaConvert to read/write.
 
+## Project Structure
+
+```
+zencoder_translater/
+├── app/
+│   ├── Console/
+│   ├── Exceptions/
+│   ├── Http/
+│   │   ├── Controllers/
+│   │   │   ├── AccountController.php
+│   │   │   ├── JobController.php
+│   │   │   └── OutputController.php
+│   │   └── Middleware/
+│   │       ├── ApiKeyMiddleware.php
+│   │       └── CorsMiddleware.php
+│   ├── Jobs/
+│   │   └── ProcessJobCompletion.php
+│   ├── Models/
+│   │   ├── Job.php
+│   │   └── Output.php
+│   ├── Providers/
+│   │   ├── AppServiceProvider.php
+│   │   └── AwsServiceProvider.php
+│   └── Services/
+│       ├── MediaConvertService.php
+│       ├── WebhookService.php
+│       └── ZencoderTranslatorService.php
+├── bootstrap/
+│   └── app.php
+├── config/
+│   ├── app.php
+│   ├── aws.php
+│   └── database.php
+├── database/
+│   └── migrations/
+├── docker/
+│   ├── nginx.conf
+│   └── supervisord.conf
+├── public/
+│   └── index.php
+├── routes/
+│   └── web.php
+├── storage/
+├── tests/
+├── .env.example
+├── artisan
+├── composer.json
+├── docker-compose.yml
+├── Dockerfile
+└── README.md
+```
+
 ## Migration Guide
 
 ### Updating Your Application
@@ -272,14 +326,14 @@ Some Zencoder features are not directly mapped:
 ### Running Tests
 
 ```bash
-pytest tests/ -v
+./vendor/bin/phpunit
 ```
 
-### API Documentation
+### Code Style
 
-Once running, visit:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+```bash
+./vendor/bin/pint
+```
 
 ## License
 
