@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=${DEBUG:-false}
+      - API_KEY=${API_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - MEDIACONVERT_ENDPOINT=${MEDIACONVERT_ENDPOINT}
+      - MEDIACONVERT_ROLE_ARN=${MEDIACONVERT_ROLE_ARN}
+      - MEDIACONVERT_QUEUE_ARN=${MEDIACONVERT_QUEUE_ARN}
+      - S3_INPUT_BUCKET=${S3_INPUT_BUCKET}
+      - S3_OUTPUT_BUCKET=${S3_OUTPUT_BUCKET}
+      - S3_OUTPUT_PREFIX=${S3_OUTPUT_PREFIX:-transcoded/}
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/zencoder_jobs.db}
+      - REDIS_URL=redis://redis:6379/0
+      - WEBHOOK_TIMEOUT=${WEBHOOK_TIMEOUT:-30}
+      - WEBHOOK_MAX_RETRIES=${WEBHOOK_MAX_RETRIES:-3}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  redis_data:
