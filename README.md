@@ -56,7 +56,7 @@ php artisan migrate
 php -S localhost:8000 -t public
 ```
 
-### Docker Deployment
+### Docker Deployment (Local)
 
 ```bash
 # Build and run with docker-compose
@@ -66,6 +66,10 @@ docker-compose up -d
 docker build -t zencoder-translator .
 docker run -p 8000:8000 --env-file .env zencoder-translator
 ```
+
+### AWS ECS Fargate Deployment
+
+For production deployment on AWS ECS Fargate with RDS and ElastiCache, see [AWS Deployment Guide](#aws-ecs-fargate-deployment) below.
 
 ## Configuration
 
@@ -379,6 +383,403 @@ If your bucket is not in the same AWS account, add a bucket policy:
 }
 ```
 
+## AWS ECS Fargate Deployment
+
+This section covers deploying the translator API on AWS ECS Fargate with RDS (PostgreSQL/MySQL) and ElastiCache (Redis).
+
+### Architecture Overview
+
+```
+                    ┌─────────────────────────────────────────────────────────────┐
+                    │                         VPC                                  │
+                    │  ┌──────────────────────────────────────────────────────┐   │
+                    │  │                    Public Subnet                      │   │
+Internet ──────────►│  │  ┌─────────────────────────────────────────────┐     │   │
+                    │  │  │        Application Load Balancer             │     │   │
+                    │  │  └─────────────────────────────────────────────┘     │   │
+                    │  └──────────────────────────────────────────────────────┘   │
+                    │                            │                                 │
+                    │  ┌──────────────────────────────────────────────────────┐   │
+                    │  │                   Private Subnet                      │   │
+                    │  │  ┌─────────────────────────────────────────────┐     │   │
+                    │  │  │          ECS Fargate Service                 │     │   │
+                    │  │  │  ┌─────────────┐  ┌─────────────┐           │     │   │
+                    │  │  │  │   Task 1    │  │   Task 2    │           │     │   │
+                    │  │  │  └─────────────┘  └─────────────┘           │     │   │
+                    │  │  └─────────────────────────────────────────────┘     │   │
+                    │  │           │                    │                      │   │
+                    │  │     ┌─────┴────────────────────┴─────┐               │   │
+                    │  │     │                                 │               │   │
+                    │  │  ┌──▼────────────┐    ┌──────────────▼──┐            │   │
+                    │  │  │   RDS         │    │   ElastiCache   │            │   │
+                    │  │  │  (PostgreSQL) │    │   (Redis)       │            │   │
+                    │  │  └───────────────┘    └─────────────────┘            │   │
+                    │  └──────────────────────────────────────────────────────┘   │
+                    └─────────────────────────────────────────────────────────────┘
+```
+
+### Prerequisites
+
+- AWS CLI configured
+- Docker installed
+- ECR repository created
+- VPC with public and private subnets
+
+### 1. Create ECR Repository and Push Image
+
+```bash
+# Create ECR repository
+aws ecr create-repository --repository-name zencoder-translator
+
+# Get login credentials
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-east-1.amazonaws.com
+
+# Build and push
+docker build -t zencoder-translator .
+docker tag zencoder-translator:latest 123456789012.dkr.ecr.us-east-1.amazonaws.com/zencoder-translator:latest
+docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/zencoder-translator:latest
+```
+
+### 2. Create RDS PostgreSQL Instance
+
+```bash
+# Create DB subnet group
+aws rds create-db-subnet-group \
+  --db-subnet-group-name zencoder-db-subnet \
+  --db-subnet-group-description "Subnet group for Zencoder translator" \
+  --subnet-ids subnet-xxxxx subnet-yyyyy
+
+# Create PostgreSQL instance
+aws rds create-db-instance \
+  --db-instance-identifier zencoder-translator-db \
+  --db-instance-class db.t3.micro \
+  --engine postgres \
+  --engine-version 15 \
+  --master-username dbadmin \
+  --master-user-password "YourSecurePassword" \
+  --allocated-storage 20 \
+  --db-subnet-group-name zencoder-db-subnet \
+  --vpc-security-group-ids sg-xxxxx \
+  --no-publicly-accessible \
+  --storage-encrypted
+```
+
+### 3. Create ElastiCache Redis Cluster
+
+```bash
+# Create cache subnet group
+aws elasticache create-cache-subnet-group \
+  --cache-subnet-group-name zencoder-cache-subnet \
+  --cache-subnet-group-description "Subnet group for Zencoder translator" \
+  --subnet-ids subnet-xxxxx subnet-yyyyy
+
+# Create Redis cluster
+aws elasticache create-cache-cluster \
+  --cache-cluster-id zencoder-redis \
+  --cache-node-type cache.t3.micro \
+  --engine redis \
+  --num-cache-nodes 1 \
+  --cache-subnet-group-name zencoder-cache-subnet \
+  --security-group-ids sg-xxxxx
+```
+
+### 4. Create ECS Task Execution Role
+
+Create `ecs-task-execution-policy.json`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameters",
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+Create `ecs-task-role-policy.json` (permissions for the application):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "MediaConvertAccess",
+      "Effect": "Allow",
+      "Action": [
+        "mediaconvert:CreateJob",
+        "mediaconvert:GetJob",
+        "mediaconvert:CancelJob",
+        "mediaconvert:ListJobs",
+        "mediaconvert:DescribeEndpoints"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PassRoleToMediaConvert",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::123456789012:role/MediaConvertRole"
+    },
+    {
+      "Sid": "S3Access",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::your-media-bucket",
+        "arn:aws:s3:::your-media-bucket/*"
+      ]
+    }
+  ]
+}
+```
+
+```bash
+# Create execution role
+aws iam create-role \
+  --role-name ecsTaskExecutionRole \
+  --assume-role-policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Principal": {"Service": "ecs-tasks.amazonaws.com"},
+      "Action": "sts:AssumeRole"
+    }]
+  }'
+
+aws iam put-role-policy \
+  --role-name ecsTaskExecutionRole \
+  --policy-name EcsTaskExecutionPolicy \
+  --policy-document file://ecs-task-execution-policy.json
+
+# Create task role (for application permissions)
+aws iam create-role \
+  --role-name ZencoderTranslatorTaskRole \
+  --assume-role-policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Principal": {"Service": "ecs-tasks.amazonaws.com"},
+      "Action": "sts:AssumeRole"
+    }]
+  }'
+
+aws iam put-role-policy \
+  --role-name ZencoderTranslatorTaskRole \
+  --policy-name ZencoderTranslatorPolicy \
+  --policy-document file://ecs-task-role-policy.json
+```
+
+### 5. Create ECS Task Definition
+
+Create `task-definition.json`:
+
+```json
+{
+  "family": "zencoder-translator",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::123456789012:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::123456789012:role/ZencoderTranslatorTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "zencoder-translator",
+      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/zencoder-translator:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {"name": "APP_ENV", "value": "production"},
+        {"name": "APP_DEBUG", "value": "false"},
+        {"name": "LOG_CHANNEL", "value": "stderr"},
+        {"name": "LOG_LEVEL", "value": "info"},
+        {"name": "DB_CONNECTION", "value": "pgsql"},
+        {"name": "DB_HOST", "value": "zencoder-translator-db.xxxxx.us-east-1.rds.amazonaws.com"},
+        {"name": "DB_PORT", "value": "5432"},
+        {"name": "DB_DATABASE", "value": "zencoder_translator"},
+        {"name": "REDIS_HOST", "value": "zencoder-redis.xxxxx.cache.amazonaws.com"},
+        {"name": "REDIS_PORT", "value": "6379"},
+        {"name": "CACHE_DRIVER", "value": "redis"},
+        {"name": "QUEUE_CONNECTION", "value": "redis"},
+        {"name": "AWS_REGION", "value": "us-east-1"},
+        {"name": "MEDIACONVERT_ENDPOINT", "value": "https://xxxxx.mediaconvert.us-east-1.amazonaws.com"},
+        {"name": "MEDIACONVERT_ROLE_ARN", "value": "arn:aws:iam::123456789012:role/MediaConvertRole"},
+        {"name": "S3_OUTPUT_BUCKET", "value": "your-media-bucket"}
+      ],
+      "secrets": [
+        {
+          "name": "DB_USERNAME",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:zencoder/db:username::"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:zencoder/db:password::"
+        },
+        {
+          "name": "API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:zencoder/api:key::"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/zencoder-translator",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}
+```
+
+```bash
+# Create CloudWatch log group
+aws logs create-log-group --log-group-name /ecs/zencoder-translator
+
+# Register task definition
+aws ecs register-task-definition --cli-input-json file://task-definition.json
+```
+
+### 6. Create Application Load Balancer
+
+```bash
+# Create ALB
+aws elbv2 create-load-balancer \
+  --name zencoder-alb \
+  --subnets subnet-public1 subnet-public2 \
+  --security-groups sg-alb \
+  --scheme internet-facing \
+  --type application
+
+# Create target group
+aws elbv2 create-target-group \
+  --name zencoder-tg \
+  --protocol HTTP \
+  --port 8000 \
+  --vpc-id vpc-xxxxx \
+  --target-type ip \
+  --health-check-path /health \
+  --health-check-interval-seconds 30
+
+# Create listener
+aws elbv2 create-listener \
+  --load-balancer-arn arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/zencoder-alb/xxxxx \
+  --protocol HTTP \
+  --port 80 \
+  --default-actions Type=forward,TargetGroupArn=arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/zencoder-tg/xxxxx
+```
+
+### 7. Create ECS Service
+
+```bash
+# Create ECS cluster
+aws ecs create-cluster --cluster-name zencoder-cluster
+
+# Create service
+aws ecs create-service \
+  --cluster zencoder-cluster \
+  --service-name zencoder-translator \
+  --task-definition zencoder-translator:1 \
+  --desired-count 2 \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[subnet-private1,subnet-private2],securityGroups=[sg-ecs],assignPublicIp=DISABLED}" \
+  --load-balancers "targetGroupArn=arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/zencoder-tg/xxxxx,containerName=zencoder-translator,containerPort=8000"
+```
+
+### 8. Security Group Rules
+
+**ALB Security Group (sg-alb):**
+- Inbound: TCP 80/443 from 0.0.0.0/0
+- Outbound: TCP 8000 to sg-ecs
+
+**ECS Security Group (sg-ecs):**
+- Inbound: TCP 8000 from sg-alb
+- Outbound: TCP 5432 to sg-rds (PostgreSQL)
+- Outbound: TCP 6379 to sg-redis (ElastiCache)
+- Outbound: TCP 443 to 0.0.0.0/0 (AWS APIs, webhooks)
+
+**RDS Security Group (sg-rds):**
+- Inbound: TCP 5432 from sg-ecs
+
+**ElastiCache Security Group (sg-redis):**
+- Inbound: TCP 6379 from sg-ecs
+
+### 9. Run Database Migrations
+
+```bash
+# Run one-off migration task
+aws ecs run-task \
+  --cluster zencoder-cluster \
+  --task-definition zencoder-translator:1 \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[subnet-private1],securityGroups=[sg-ecs],assignPublicIp=DISABLED}" \
+  --overrides '{
+    "containerOverrides": [{
+      "name": "zencoder-translator",
+      "command": ["php", "artisan", "migrate", "--force"]
+    }]
+  }'
+```
+
+### Cost Optimization Tips
+
+1. **Use Fargate Spot** for non-critical workloads (up to 70% savings)
+2. **Right-size RDS** - Start with db.t3.micro and scale as needed
+3. **Use ElastiCache Serverless** for variable workloads
+4. **Enable auto-scaling** based on CPU/memory metrics
+5. **Use Reserved Capacity** for predictable workloads
+
+### Monitoring
+
+CloudWatch metrics to monitor:
+- ECS: CPUUtilization, MemoryUtilization
+- ALB: RequestCount, TargetResponseTime, HTTPCode_Target_5XX_Count
+- RDS: CPUUtilization, DatabaseConnections, FreeStorageSpace
+- ElastiCache: CurrConnections, CacheHits, CacheMisses
+
 ## Project Structure
 
 ```
@@ -411,7 +812,10 @@ zencoder_translater/
 ├── config/
 │   ├── app.php
 │   ├── aws.php
-│   └── database.php
+│   ├── cache.php
+│   ├── database.php
+│   ├── logging.php
+│   └── queue.php
 ├── database/
 │   └── migrations/
 ├── docker/

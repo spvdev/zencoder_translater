@@ -46,6 +46,9 @@ $app->singleton(
 $app->configure('app');
 $app->configure('database');
 $app->configure('aws');
+$app->configure('cache');
+$app->configure('queue');
+$app->configure('logging');
 
 /*
 |--------------------------------------------------------------------------

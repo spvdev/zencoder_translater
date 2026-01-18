@@ -1,11 +1,18 @@
 FROM php:8.2-fpm-alpine
 
-# Install dependencies
+# Install system dependencies
 RUN apk add --no-cache \
     nginx \
     supervisor \
-    sqlite \
-    && docker-php-ext-install pdo pdo_mysql
+    postgresql-dev \
+    libzip-dev \
+    && docker-php-ext-install pdo pdo_mysql pdo_pgsql opcache zip
+
+# Install Redis extension
+RUN apk add --no-cache --virtual .build-deps $PHPIZE_DEPS \
+    && pecl install redis \
+    && docker-php-ext-enable redis \
+    && apk del .build-deps
 
 # Install composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -26,9 +33,8 @@ COPY . .
 RUN composer dump-autoload --optimize
 
 # Create required directories
-RUN mkdir -p /app/database /app/storage/logs /app/storage/framework/cache \
-    && touch /app/database/database.sqlite \
-    && chown -R www-data:www-data /app/database /app/storage
+RUN mkdir -p /app/storage/logs /app/storage/framework/cache /app/storage/framework/views \
+    && chown -R www-data:www-data /app/storage
 
 # Copy nginx configuration
 COPY docker/nginx.conf /etc/nginx/http.d/default.conf
@@ -36,8 +42,15 @@ COPY docker/nginx.conf /etc/nginx/http.d/default.conf
 # Copy supervisord configuration
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
+# Copy PHP production configuration
+COPY docker/php.ini /usr/local/etc/php/conf.d/99-production.ini
+
 # Expose port
 EXPOSE 8000
+
+# Health check for ECS
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO- http://localhost:8000/health || exit 1
 
 # Start supervisord
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
