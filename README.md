@@ -529,6 +529,14 @@ Create `ecs-task-role-policy.json` (permissions for the application):
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "SecretsManagerAccess",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": "arn:aws:secretsmanager:us-east-1:123456789012:secret:zencoder-translator/*"
+    },
+    {
       "Sid": "MediaConvertAccess",
       "Effect": "Allow",
       "Action": [
@@ -599,9 +607,46 @@ aws iam put-role-policy \
   --policy-document file://ecs-task-role-policy.json
 ```
 
-### 5. Create ECS Task Definition
+### 5. Create Secrets Manager Secret
 
-Create `task-definition.json`:
+Store all configuration in a single Secrets Manager secret. The container fetches this at startup.
+
+```bash
+# Create the secret with all configuration
+aws secretsmanager create-secret \
+  --name zencoder-translator/config \
+  --description "Zencoder Translator API configuration" \
+  --secret-string '{
+    "APP_ENV": "production",
+    "APP_DEBUG": "false",
+    "APP_URL": "https://your-alb-url.amazonaws.com",
+    "LOG_CHANNEL": "stderr",
+    "LOG_LEVEL": "info",
+    "DB_CONNECTION": "pgsql",
+    "DB_HOST": "zencoder-translator-db.xxxxx.us-east-1.rds.amazonaws.com",
+    "DB_PORT": "5432",
+    "DB_DATABASE": "zencoder_translator",
+    "DB_USERNAME": "dbadmin",
+    "DB_PASSWORD": "your-secure-password",
+    "REDIS_HOST": "zencoder-redis.xxxxx.cache.amazonaws.com",
+    "REDIS_PORT": "6379",
+    "CACHE_DRIVER": "redis",
+    "QUEUE_CONNECTION": "redis",
+    "API_KEY": "your-api-key",
+    "MEDIACONVERT_ENDPOINT": "https://xxxxx.mediaconvert.us-east-1.amazonaws.com",
+    "MEDIACONVERT_ROLE_ARN": "arn:aws:iam::123456789012:role/MediaConvertRole",
+    "S3_OUTPUT_BUCKET": "your-media-bucket"
+  }'
+
+# To update the secret later:
+aws secretsmanager update-secret \
+  --secret-id zencoder-translator/config \
+  --secret-string '{"key": "new-value", ...}'
+```
+
+### 6. Create ECS Task Definition
+
+Create `task-definition.json`. The container uses `SECRET_ARN` to fetch all configuration from Secrets Manager at startup:
 
 ```json
 {
@@ -624,36 +669,8 @@ Create `task-definition.json`:
         }
       ],
       "environment": [
-        {"name": "APP_ENV", "value": "production"},
-        {"name": "APP_DEBUG", "value": "false"},
-        {"name": "LOG_CHANNEL", "value": "stderr"},
-        {"name": "LOG_LEVEL", "value": "info"},
-        {"name": "DB_CONNECTION", "value": "pgsql"},
-        {"name": "DB_HOST", "value": "zencoder-translator-db.xxxxx.us-east-1.rds.amazonaws.com"},
-        {"name": "DB_PORT", "value": "5432"},
-        {"name": "DB_DATABASE", "value": "zencoder_translator"},
-        {"name": "REDIS_HOST", "value": "zencoder-redis.xxxxx.cache.amazonaws.com"},
-        {"name": "REDIS_PORT", "value": "6379"},
-        {"name": "CACHE_DRIVER", "value": "redis"},
-        {"name": "QUEUE_CONNECTION", "value": "redis"},
         {"name": "AWS_REGION", "value": "us-east-1"},
-        {"name": "MEDIACONVERT_ENDPOINT", "value": "https://xxxxx.mediaconvert.us-east-1.amazonaws.com"},
-        {"name": "MEDIACONVERT_ROLE_ARN", "value": "arn:aws:iam::123456789012:role/MediaConvertRole"},
-        {"name": "S3_OUTPUT_BUCKET", "value": "your-media-bucket"}
-      ],
-      "secrets": [
-        {
-          "name": "DB_USERNAME",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:zencoder/db:username::"
-        },
-        {
-          "name": "DB_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:zencoder/db:password::"
-        },
-        {
-          "name": "API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:zencoder/api:key::"
-        }
+        {"name": "SECRET_ARN", "value": "arn:aws:secretsmanager:us-east-1:123456789012:secret:zencoder-translator/config-AbCdEf"}
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
@@ -683,7 +700,7 @@ aws logs create-log-group --log-group-name /ecs/zencoder-translator
 aws ecs register-task-definition --cli-input-json file://task-definition.json
 ```
 
-### 6. Create Application Load Balancer
+### 7. Create Application Load Balancer
 
 ```bash
 # Create ALB
@@ -712,7 +729,7 @@ aws elbv2 create-listener \
   --default-actions Type=forward,TargetGroupArn=arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/zencoder-tg/xxxxx
 ```
 
-### 7. Create ECS Service
+### 8. Create ECS Service
 
 ```bash
 # Create ECS cluster
@@ -729,7 +746,7 @@ aws ecs create-service \
   --load-balancers "targetGroupArn=arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/zencoder-tg/xxxxx,containerName=zencoder-translator,containerPort=8000"
 ```
 
-### 8. Security Group Rules
+### 9. Security Group Rules
 
 **ALB Security Group (sg-alb):**
 - Inbound: TCP 80/443 from 0.0.0.0/0
@@ -747,7 +764,7 @@ aws ecs create-service \
 **ElastiCache Security Group (sg-redis):**
 - Inbound: TCP 6379 from sg-ecs
 
-### 9. Run Database Migrations
+### 10. Run Database Migrations
 
 Run migrations as a one-off ECS task **before** deploying new versions with schema changes. This approach avoids race conditions when multiple containers start simultaneously.
 

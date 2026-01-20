@@ -1,11 +1,12 @@
 FROM php:8.2-fpm-alpine
 
-# Install system dependencies
+# Install system dependencies and AWS CLI
 RUN apk add --no-cache \
     nginx \
     supervisor \
     postgresql-dev \
     libzip-dev \
+    aws-cli \
     && docker-php-ext-install pdo pdo_mysql pdo_pgsql opcache zip
 
 # Install Redis extension
@@ -45,12 +46,19 @@ COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 # Copy PHP production configuration
 COPY docker/php.ini /usr/local/etc/php/conf.d/99-production.ini
 
+# Copy and setup entrypoint script
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 # Expose port
 EXPOSE 8000
 
 # Health check for ECS
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget -qO- http://localhost:8000/health || exit 1
+
+# Use entrypoint to load secrets from AWS Secrets Manager
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 # Start supervisord
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
