@@ -37,14 +37,14 @@ class MediaConvertService
         }
 
         // Discover endpoint
-        $client = new MediaConvertClient([
+        $clientConfig = [
             'version' => '2017-08-29',
             'region' => config('aws.region'),
-            'credentials' => [
-                'key' => config('aws.credentials.key'),
-                'secret' => config('aws.credentials.secret'),
-            ],
-        ]);
+        ];
+        if (config('aws.credentials')) {
+            $clientConfig['credentials'] = config('aws.credentials');
+        }
+        $client = new MediaConvertClient($clientConfig);
 
         $result = $client->describeEndpoints();
         $this->endpoint = $result['Endpoints'][0]['Url'];
@@ -63,15 +63,15 @@ class MediaConvertService
             return $this->client;
         }
 
-        $this->client = new MediaConvertClient([
+        $clientConfig = [
             'version' => '2017-08-29',
             'region' => config('aws.region'),
             'endpoint' => $this->getEndpoint(),
-            'credentials' => [
-                'key' => config('aws.credentials.key'),
-                'secret' => config('aws.credentials.secret'),
-            ],
-        ]);
+        ];
+        if (config('aws.credentials')) {
+            $clientConfig['credentials'] = config('aws.credentials');
+        }
+        $this->client = new MediaConvertClient($clientConfig);
 
         return $this->client;
     }

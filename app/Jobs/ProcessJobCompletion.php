@@ -6,10 +6,14 @@ use App\Models\Job;
 use App\Services\MediaConvertService;
 use App\Services\WebhookService;
 use Carbon\Carbon;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Log;
 
-class ProcessJobCompletion
+class ProcessJobCompletion implements ShouldQueue
 {
+    use InteractsWithQueue, Queueable;
     private int $jobId;
 
     /**
@@ -86,7 +90,9 @@ class ProcessJobCompletion
                 }
             } else {
                 // Job still processing, check again later
-                dispatch(new self($this->jobId))->delay(now()->addSeconds(30));
+                $retryJob = new self($this->jobId);
+                $retryJob->delay(30);
+                dispatch($retryJob);
             }
         } catch (\Exception $e) {
             Log::error("Error processing job completion for {$this->jobId}: {$e->getMessage()}");

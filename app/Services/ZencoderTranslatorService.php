@@ -550,11 +550,16 @@ class ZencoderTranslatorService
             $qvbrQuality = min(10, max(1, $output['quality'] * 2));
             $settings['QvbrSettings'] = ['QvbrQualityLevel' => $qvbrQuality];
             $settings['RateControlMode'] = 'QVBR';
+        } else {
+            $settings['QvbrSettings'] = ['QvbrQualityLevel' => 7];
+            $settings['RateControlMode'] = 'QVBR';
         }
 
-        // Max bitrate
+        // Max bitrate (required for QVBR)
         if (!empty($output['max_video_bitrate'])) {
             $settings['MaxBitrate'] = $output['max_video_bitrate'] * 1000;
+        } elseif ($settings['RateControlMode'] === 'QVBR') {
+            $settings['MaxBitrate'] = 5000000;
         }
 
         // Profile
@@ -603,10 +608,14 @@ class ZencoderTranslatorService
         } elseif (!empty($output['quality'])) {
             $qvbrQuality = min(10, max(1, $output['quality'] * 2));
             $settings['QvbrSettings'] = ['QvbrQualityLevel' => $qvbrQuality];
+        } else {
+            $settings['QvbrSettings'] = ['QvbrQualityLevel' => 7];
         }
 
         if (!empty($output['max_video_bitrate'])) {
             $settings['MaxBitrate'] = $output['max_video_bitrate'] * 1000;
+        } elseif ($settings['RateControlMode'] === 'QVBR') {
+            $settings['MaxBitrate'] = 5000000;
         }
 
         if (!empty($output['keyframe_interval'])) {
@@ -684,18 +693,16 @@ class ZencoderTranslatorService
                 $aacSettings = [
                     'CodecProfile' => 'LC',
                     'RateControlMode' => 'CBR',
+                    'CodingMode' => !empty($output['audio_channels'])
+                        ? $this->getAacCodingMode($output['audio_channels'])
+                        : 'CODING_MODE_2_0',
+                    'SampleRate' => !empty($output['audio_sample_rate'])
+                        ? $output['audio_sample_rate']
+                        : 48000,
                     'Bitrate' => !empty($output['audio_bitrate'])
                         ? $output['audio_bitrate'] * 1000
                         : 128000,
                 ];
-
-                if (!empty($output['audio_sample_rate'])) {
-                    $aacSettings['SampleRate'] = $output['audio_sample_rate'];
-                }
-
-                if (!empty($output['audio_channels'])) {
-                    $aacSettings['CodingMode'] = $this->getAacCodingMode($output['audio_channels']);
-                }
 
                 $settings['AacSettings'] = $aacSettings;
                 break;

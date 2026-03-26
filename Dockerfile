@@ -48,7 +48,8 @@ COPY docker/php.ini /usr/local/etc/php/conf.d/99-production.ini
 
 # Copy and setup entrypoint script
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY docker/load-secrets-and-run.sh /usr/local/bin/load-secrets-and-run.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/load-secrets-and-run.sh
 
 # Expose port
 EXPOSE 8000
