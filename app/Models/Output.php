@@ -65,6 +65,23 @@ class Output extends Model
     }
 
     /**
+     * Convert S3 URL to HTTP format (matching Zencoder response format).
+     * s3://bucket/key -> http://bucket.s3.amazonaws.com/key
+     */
+    public function getHttpUrl(): ?string
+    {
+        if (!$this->output_url) {
+            return null;
+        }
+
+        if (preg_match('#^s3://([^/]+)/(.+)$#', $this->output_url, $matches)) {
+            return "http://{$matches[1]}.s3.amazonaws.com/{$matches[2]}";
+        }
+
+        return $this->output_url;
+    }
+
+    /**
      * Convert to Zencoder output status format.
      */
     public function toZencoderStatus(): array

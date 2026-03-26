@@ -94,9 +94,8 @@ class Job extends Model
             'outputs' => $this->outputs->map(fn($output) => [
                 'id' => $output->id,
                 'label' => $output->label,
-                'url' => $output->output_url,
+                'url' => $output->getHttpUrl(),
             ])->toArray(),
-            'test' => $this->test_mode,
         ];
     }
 }

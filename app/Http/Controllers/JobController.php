@@ -62,11 +62,22 @@ class JobController extends Controller
 
         // Create output records
         foreach ($outputs as $idx => $outputData) {
+            // Thumbnail-only outputs have no video_codec and no label
+            $isThumbnailOnly = isset($outputData['thumbnails'])
+                && !isset($outputData['video_codec'])
+                && !isset($outputData['audio_codec']);
+
+            // Determine output URL
+            $outputUrl = $outputData['url'] ?? $outputData['base_url'] ?? null;
+            if (!$outputUrl && $isThumbnailOnly && isset($outputData['thumbnails']['base_url'])) {
+                $outputUrl = $outputData['thumbnails']['base_url'];
+            }
+
             Output::create([
                 'job_id' => $job->id,
-                'label' => $outputData['label'] ?? "output_{$idx}",
+                'label' => $isThumbnailOnly ? null : ($outputData['label'] ?? "output_{$idx}"),
                 'format' => $outputData['format'] ?? null,
-                'output_url' => $outputData['url'] ?? $outputData['base_url'] ?? null,
+                'output_url' => $outputUrl,
                 'original_settings' => $outputData,
                 'notifications' => $outputData['notifications'] ?? null,
                 'state' => 'pending',
