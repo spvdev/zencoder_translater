@@ -104,7 +104,7 @@ class Output extends Model
         $details = [
             'id' => $this->id,
             'label' => $this->label,
-            'url' => $this->output_url,
+            'url' => $this->getHttpUrl(),
             'state' => $this->state,
             'error_message' => $this->error_message,
             'error_class' => $this->error_class,

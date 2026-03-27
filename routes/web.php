@@ -60,6 +60,7 @@ $router->group(['prefix' => 'api/v2', 'middleware' => 'auth.api'], function () u
     $router->get('/jobs/{id}/progress', 'JobController@progress');
     $router->put('/jobs/{id}/cancel', 'JobController@cancel');
     $router->put('/jobs/{id}/resubmit', 'JobController@resubmit');
+    $router->post('/jobs/{id}/finish', 'JobController@finish');
 
     // Outputs
     $router->get('/outputs/{id}', 'OutputController@show');
