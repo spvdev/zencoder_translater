@@ -37,6 +37,7 @@ return [
     |--------------------------------------------------------------------------
     */
     's3' => [
+        'region' => env('AWS_S3_REGION', env('AWS_REGION', 'us-east-1')),
         'input_bucket' => env('S3_INPUT_BUCKET'),
         'output_bucket' => env('S3_OUTPUT_BUCKET'),
         'output_prefix' => env('S3_OUTPUT_PREFIX', 'transcoded/'),

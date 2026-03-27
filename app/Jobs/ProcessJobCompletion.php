@@ -131,25 +131,13 @@ class ProcessJobCompletion implements ShouldQueue
         $bucket = $matches[1];
         $prefix = rtrim($matches[2], '/') . '/';
 
-        // Detect bucket region using unsigned HeadBucket request
-        $credentials = config('aws.credentials');
-        $bucketRegion = config('aws.s3.region', config('aws.region'));
-
-        try {
-            $bucketRegion = S3Client::determineBucketRegion($bucket, [
-                'version' => 'latest',
-                'region' => 'us-east-1',
-            ]) ?: $bucketRegion;
-        } catch (\Exception $e) {
-            Log::warning("Failed to detect bucket region for {$bucket}: {$e->getMessage()}");
-        }
-
+        // Use configured S3 region (may differ from MediaConvert region)
         $s3Config = [
             'version' => 'latest',
-            'region' => $bucketRegion,
+            'region' => config('aws.s3.region', config('aws.region')),
         ];
-        if ($credentials) {
-            $s3Config['credentials'] = $credentials;
+        if (config('aws.credentials')) {
+            $s3Config['credentials'] = config('aws.credentials');
         }
         $s3 = new S3Client($s3Config);
 
