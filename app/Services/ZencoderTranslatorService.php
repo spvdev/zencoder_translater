@@ -306,12 +306,12 @@ class ZencoderTranslatorService
             ],
         ];
 
-        // Set dimensions if specified
+        // Set dimensions if specified (MediaConvert requires even values)
         if (!empty($thumbConfig['width'])) {
-            $videoDescription['Width'] = (int) $thumbConfig['width'];
+            $videoDescription['Width'] = (int) $thumbConfig['width'] & ~1;
         }
         if (!empty($thumbConfig['height'])) {
-            $videoDescription['Height'] = (int) $thumbConfig['height'];
+            $videoDescription['Height'] = (int) $thumbConfig['height'] & ~1;
         }
 
         // Build name modifier from label if provided
@@ -349,7 +349,24 @@ class ZencoderTranslatorService
             return null;
         }
 
-        $destination = $this->getOutputDestination($outputs[0]);
+        // When a custom url is provided with a filename, split into directory
+        // destination and use the filename (without extension) as NameModifier
+        $firstOutput = $outputs[0];
+        $destination = $this->getOutputDestination($firstOutput);
+        $customNameModifier = null;
+
+        if (!empty($firstOutput['url'])) {
+            $normalized = $this->normalizeS3Url($firstOutput['url']);
+            $basename = basename($normalized);
+            // Check if it looks like a filename (has an extension)
+            // MediaConvert builds: Destination + NameModifier + .extension
+            // Split filename so last char goes to NameModifier (min 1 char required)
+            if (pathinfo($basename, PATHINFO_EXTENSION)) {
+                $stem = pathinfo($basename, PATHINFO_FILENAME);
+                $destination = dirname($normalized) . '/' . substr($stem, 0, -1);
+                $customNameModifier = substr($stem, -1);
+            }
+        }
 
         $group = [
             'Name' => 'File Group',
@@ -363,7 +380,7 @@ class ZencoderTranslatorService
         ];
 
         foreach ($outputs as $output) {
-            $group['Outputs'][] = $this->buildOutput($output);
+            $group['Outputs'][] = $this->buildOutput($output, false, false, $customNameModifier);
         }
 
         return $group;
@@ -441,12 +458,14 @@ class ZencoderTranslatorService
     /**
      * Build a single output configuration.
      */
-    private function buildOutput(array $output, bool $isHls = false, bool $isDash = false): array
+    private function buildOutput(array $output, bool $isHls = false, bool $isDash = false, ?string $customNameModifier = null): array
     {
         $config = [];
 
-        // Add name modifier for multiple outputs
-        if (!empty($output['label'])) {
+        // When a custom URL with filename is provided, use the filename as NameModifier
+        if ($customNameModifier !== null) {
+            $config['NameModifier'] = $customNameModifier;
+        } elseif (!empty($output['label'])) {
             $config['NameModifier'] = "_{$output['label']}";
         } elseif (!empty($output['filename'])) {
             $name = pathinfo($output['filename'], PATHINFO_FILENAME);
@@ -769,6 +788,14 @@ class ZencoderTranslatorService
         if (!empty($output['size']) && preg_match('/(\d+)x(\d+)/', $output['size'], $matches)) {
             $width = (int) $matches[1];
             $height = (int) $matches[2];
+        }
+
+        // MediaConvert requires even dimensions — round odd values down
+        if ($width) {
+            $width = (int) $width & ~1;
+        }
+        if ($height) {
+            $height = (int) $height & ~1;
         }
 
         return [$width, $height];
