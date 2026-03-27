@@ -131,14 +131,26 @@ class ProcessJobCompletion implements ShouldQueue
         $bucket = $matches[1];
         $prefix = rtrim($matches[2], '/') . '/';
 
+        // Determine bucket region (may differ from MediaConvert region)
         $s3Config = [
             'version' => 'latest',
-            'region' => config('aws.region'),
+            'region' => config('aws.s3.region', config('aws.region')),
         ];
         if (config('aws.credentials')) {
             $s3Config['credentials'] = config('aws.credentials');
         }
         $s3 = new S3Client($s3Config);
+
+        // Detect actual bucket region if different
+        try {
+            $bucketRegion = $s3->getBucketLocation(['Bucket' => $bucket])['LocationConstraint'] ?? 'us-east-1';
+            if ($bucketRegion && $bucketRegion !== $s3Config['region']) {
+                $s3Config['region'] = $bucketRegion;
+                $s3 = new S3Client($s3Config);
+            }
+        } catch (\Exception $e) {
+            // Continue with configured region
+        }
 
         $result = $s3->listObjectsV2([
             'Bucket' => $bucket,
