@@ -147,13 +147,13 @@ class WebhookService
     public function buildJobNotificationPayload(array $job, array $outputs, ?array $inputInfo = null): array
     {
         $payload = [
+            'outputs' => $outputs,
             'job' => [
                 'id' => $job['id'] ?? null,
                 'state' => $job['state'] ?? null,
                 'pass_through' => $job['pass_through'] ?? null,
                 'created_at' => $job['created_at'] ?? null,
                 'finished_at' => $job['finished_at'] ?? null,
-                'outputs' => $outputs,
             ],
         ];
 
