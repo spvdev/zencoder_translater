@@ -3,8 +3,10 @@
 namespace App\Jobs;
 
 use App\Models\Job;
+use App\Models\Output;
 use App\Services\MediaConvertService;
 use App\Services\WebhookService;
+use Aws\S3\S3Client;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -65,6 +67,23 @@ class ProcessJobCompletion implements ShouldQueue
                     ]);
                 }
 
+                // Discover thumbnails for completed thumbnail outputs
+                if ($awsStatus === 'COMPLETE') {
+                    foreach ($job->outputs as $output) {
+                        if ($output->label === null && $output->output_url && !$output->thumbnails) {
+                            try {
+                                $thumbnails = $this->discoverThumbnails($output);
+                                if ($thumbnails) {
+                                    $output->update(['thumbnails' => $thumbnails]);
+                                }
+                            } catch (\Exception $e) {
+                                Log::warning("Failed to discover thumbnails: {$e->getMessage()}");
+                            }
+                        }
+                    }
+                    $job->load('outputs');
+                }
+
                 // Send notifications
                 if ($job->notifications) {
                     $payload = $webhook->buildJobNotificationPayload(
@@ -97,5 +116,53 @@ class ProcessJobCompletion implements ShouldQueue
         } catch (\Exception $e) {
             Log::error("Error processing job completion for {$this->jobId}: {$e->getMessage()}");
         }
+    }
+
+    /**
+     * Discover thumbnail files from S3 for a thumbnail output.
+     */
+    private function discoverThumbnails(Output $output): array
+    {
+        $s3Url = $output->output_url;
+        if (!preg_match('#^s3://([^/]+)/(.+)$#', $s3Url, $matches)) {
+            return [];
+        }
+
+        $bucket = $matches[1];
+        $prefix = rtrim($matches[2], '/') . '/';
+
+        $s3Config = [
+            'version' => 'latest',
+            'region' => config('aws.region'),
+        ];
+        if (config('aws.credentials')) {
+            $s3Config['credentials'] = config('aws.credentials');
+        }
+        $s3 = new S3Client($s3Config);
+
+        $result = $s3->listObjectsV2([
+            'Bucket' => $bucket,
+            'Prefix' => $prefix,
+            'MaxKeys' => 10,
+        ]);
+
+        // Get thumbnail width from original settings
+        $settings = $output->original_settings ?? [];
+        $thumbSettings = $settings['thumbnails'] ?? [];
+        $width = $thumbSettings['width'] ?? 640;
+        $height = intval($width * 9 / 16); // Estimate 16:9 aspect ratio
+
+        $images = [];
+        foreach ($result['Contents'] ?? [] as $object) {
+            $key = $object['Key'];
+            $url = "http://{$bucket}.s3.amazonaws.com/{$key}";
+            $images[] = [
+                'url' => $url,
+                'file_size_bytes' => $object['Size'] ?? null,
+                'dimensions' => "{$width}x{$height}",
+            ];
+        }
+
+        return $images ? [['images' => $images]] : [];
     }
 }

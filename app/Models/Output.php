@@ -127,9 +127,13 @@ class Output extends Model
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];
 
-        // Include thumbnails if present (Zencoder format)
+        // Include thumbnails for thumbnail outputs (Zencoder format)
         if ($this->thumbnails) {
             $details['thumbnails'] = $this->thumbnails;
+        } elseif ($this->label === null) {
+            // Thumbnail outputs must always have the thumbnails key
+            // so Zencoder clients can identify them as thumbnail outputs
+            $details['thumbnails'] = [];
         }
 
         return $details;
