@@ -131,26 +131,34 @@ class ProcessJobCompletion implements ShouldQueue
         $bucket = $matches[1];
         $prefix = rtrim($matches[2], '/') . '/';
 
-        // Determine bucket region (may differ from MediaConvert region)
+        // Detect bucket region using us-east-1 (works globally for getBucketLocation)
+        $credentials = config('aws.credentials');
+        $bucketRegion = config('aws.s3.region', config('aws.region'));
+
+        try {
+            $lookupConfig = [
+                'version' => 'latest',
+                'region' => 'us-east-1',
+            ];
+            if ($credentials) {
+                $lookupConfig['credentials'] = $credentials;
+            }
+            $lookupClient = new S3Client($lookupConfig);
+            $detectedRegion = $lookupClient->getBucketLocation(['Bucket' => $bucket])['LocationConstraint'];
+            // LocationConstraint is null for us-east-1, empty string also means us-east-1
+            $bucketRegion = $detectedRegion ?: 'us-east-1';
+        } catch (\Exception $e) {
+            Log::warning("Failed to detect bucket region for {$bucket}: {$e->getMessage()}");
+        }
+
         $s3Config = [
             'version' => 'latest',
-            'region' => config('aws.s3.region', config('aws.region')),
+            'region' => $bucketRegion,
         ];
-        if (config('aws.credentials')) {
-            $s3Config['credentials'] = config('aws.credentials');
+        if ($credentials) {
+            $s3Config['credentials'] = $credentials;
         }
         $s3 = new S3Client($s3Config);
-
-        // Detect actual bucket region if different
-        try {
-            $bucketRegion = $s3->getBucketLocation(['Bucket' => $bucket])['LocationConstraint'] ?? 'us-east-1';
-            if ($bucketRegion && $bucketRegion !== $s3Config['region']) {
-                $s3Config['region'] = $bucketRegion;
-                $s3 = new S3Client($s3Config);
-            }
-        } catch (\Exception $e) {
-            // Continue with configured region
-        }
 
         $result = $s3->listObjectsV2([
             'Bucket' => $bucket,
