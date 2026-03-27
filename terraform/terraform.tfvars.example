@@ -1,0 +1,11 @@
+# Copy this file to terraform.tfvars and fill in the values
+# cp terraform.tfvars.example terraform.tfvars
+
+aws_region = "eu-west-1"
+account_id = "517241097221"
+
+# Database
+db_master_password = "CHANGE_ME_TO_A_STRONG_PASSWORD"
+
+# Application
+api_key = "8b6d3317fa1a455d0fd033ca917a855f9a1dcdb35b1d34c2a06ccffdb0000910"
