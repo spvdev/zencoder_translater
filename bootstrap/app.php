@@ -58,6 +58,7 @@ $app->configure('logging');
 
 $app->middleware([
     App\Http\Middleware\CorsMiddleware::class,
+    App\Http\Middleware\RequestResponseLogger::class,
 ]);
 
 $app->routeMiddleware([

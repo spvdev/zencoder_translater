@@ -75,7 +75,7 @@ class Output extends Model
         }
 
         if (preg_match('#^s3://([^/]+)/(.+)$#', $this->output_url, $matches)) {
-            return "http://{$matches[1]}.s3.amazonaws.com/{$matches[2]}";
+            return "https://{$matches[1]}.s3.amazonaws.com/{$matches[2]}";
         }
 
         return $this->output_url;
@@ -125,6 +125,7 @@ class Output extends Model
             'submitted_at' => $this->submitted_at?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
+            'pass_through' => $this->original_settings['pass_through'] ?? null,
         ];
 
         // Include thumbnails for thumbnail outputs (Zencoder format)

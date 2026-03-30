@@ -44,6 +44,14 @@ class WebhookService
 
         $maxRetries = config('app.webhook.max_retries', 3);
 
+        Log::debug("=== WEBHOOK REQUEST to {$url} ===", [
+            'url' => $url,
+            'headers' => $headers,
+            'payload' => $payload,
+            'event' => $event,
+            'format' => $format,
+        ]);
+
         for ($attempt = 0; $attempt < $maxRetries; $attempt++) {
             try {
                 $response = $this->client->post($url, [
@@ -51,14 +59,34 @@ class WebhookService
                     'headers' => $headers,
                 ]);
 
+                $responseBody = $response->getBody()->getContents();
+
+                Log::debug("=== WEBHOOK RESPONSE from {$url} ===", [
+                    'status' => $response->getStatusCode(),
+                    'headers' => $response->getHeaders(),
+                    'body' => $responseBody,
+                    'attempt' => $attempt + 1,
+                ]);
+
                 if ($response->getStatusCode() < 400) {
                     Log::info("Webhook sent successfully to {$url}");
                     return true;
                 }
 
-                Log::warning("Webhook to {$url} returned status {$response->getStatusCode()}");
+                Log::warning("Webhook to {$url} returned status {$response->getStatusCode()}", [
+                    'response_body' => $responseBody,
+                ]);
             } catch (RequestException $e) {
-                Log::warning("Webhook to {$url} failed: {$e->getMessage()} (attempt " . ($attempt + 1) . ")");
+                $errorContext = [
+                    'attempt' => $attempt + 1,
+                    'error' => $e->getMessage(),
+                ];
+                if ($e->hasResponse()) {
+                    $errorContext['response_status'] = $e->getResponse()->getStatusCode();
+                    $errorContext['response_body'] = $e->getResponse()->getBody()->getContents();
+                    $errorContext['response_headers'] = $e->getResponse()->getHeaders();
+                }
+                Log::warning("Webhook to {$url} failed", $errorContext);
             }
 
             // Exponential backoff
@@ -129,7 +157,9 @@ class WebhookService
                 'id' => $job['id'] ?? null,
                 'state' => $job['state'] ?? null,
                 'pass_through' => $job['pass_through'] ?? null,
+                'test' => $job['test'] ?? false,
                 'created_at' => $job['created_at'] ?? null,
+                'updated_at' => $job['updated_at'] ?? null,
                 'finished_at' => $job['finished_at'] ?? null,
             ],
         ];
@@ -152,7 +182,9 @@ class WebhookService
                 'id' => $job['id'] ?? null,
                 'state' => $job['state'] ?? null,
                 'pass_through' => $job['pass_through'] ?? null,
+                'test' => $job['test'] ?? false,
                 'created_at' => $job['created_at'] ?? null,
+                'updated_at' => $job['updated_at'] ?? null,
                 'finished_at' => $job['finished_at'] ?? null,
             ],
         ];

@@ -25,7 +25,7 @@ class JobController extends Controller
      */
     public function create(Request $request)
     {
-        $this->validate($request, [
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'input' => 'required|string',
             'outputs' => 'array',
             'outputs.*.label' => 'string',
@@ -37,6 +37,11 @@ class JobController extends Controller
             'pass_through' => 'string',
             'notifications' => 'array',
         ]);
+
+        if ($validator->fails()) {
+            $errors = collect($validator->errors()->all())->values()->toArray();
+            return $this->errorResponse($errors, 422);
+        }
 
         $data = $request->all();
 

@@ -289,11 +289,13 @@ class ZencoderTranslatorService
             $frameCaptureSettings['FramerateNumerator'] = 1;
             $frameCaptureSettings['MaxCaptures'] = (int) $number;
         } else {
-            // Single frame capture at specific time(s)
-            // For single captures, we use a very low framerate and max captures
+            // Capture at specific time(s) — e.g. times: [5] means "frame at 5 seconds"
+            // MediaConvert FrameCapture doesn't support seeking, so we capture 1fps
+            // up to the target time and clean up extra frames after job completion.
+            $maxTime = max($times);
             $frameCaptureSettings['FramerateDenominator'] = 1;
             $frameCaptureSettings['FramerateNumerator'] = 1;
-            $frameCaptureSettings['MaxCaptures'] = count($times);
+            $frameCaptureSettings['MaxCaptures'] = (int) $maxTime + 1; // 0s through Ns
         }
 
         $frameCaptureSettings['Quality'] = $thumbConfig['quality'] ?? 80;
@@ -472,12 +474,20 @@ class ZencoderTranslatorService
             $config['NameModifier'] = "_{$name}";
         }
 
-        // Container settings
-        $container = $this->getContainer($output, $isHls, $isDash);
+        // Detect audio-only output: has audio_codec but no video_codec and no video params
+        $isAudioOnly = !empty($output['audio_codec'])
+            && empty($output['video_codec'])
+            && empty($output['width'])
+            && empty($output['height'])
+            && empty($output['frame_rate'])
+            && empty($output['size']);
+
+        // Container settings — audio-only MP3 uses RAW container
+        $container = $this->getContainer($output, $isHls, $isDash, $isAudioOnly);
         $config['ContainerSettings'] = ['Container' => $container];
 
-        // Video settings
-        if (empty($output['skip_video'])) {
+        // Video settings — skip for audio-only outputs
+        if (!$isAudioOnly && empty($output['skip_video'])) {
             $config['VideoDescription'] = $this->buildVideoDescription($output);
         }
 
@@ -498,16 +508,30 @@ class ZencoderTranslatorService
 
         // Resolution
         [$width, $height] = $this->getDimensions($output);
-        if ($width) {
-            $video['Width'] = $width;
-        }
-        if ($height) {
-            $video['Height'] = $height;
-        }
+        $aspectMode = strtolower($output['aspect_mode'] ?? '');
 
-        // Scaling behavior
-        if (!empty($output['aspect_mode'])) {
-            $video['ScalingBehavior'] = $this->getScalingBehavior($output['aspect_mode']);
+        if ($aspectMode === 'stretch') {
+            // Stretch: use exact dimensions
+            if ($width) {
+                $video['Width'] = $width;
+            }
+            if ($height) {
+                $video['Height'] = $height;
+            }
+            $video['ScalingBehavior'] = 'STRETCH_TO_OUTPUT';
+        } elseif ($width && $height) {
+            // Zencoder default: fit within bounding box, preserve aspect ratio
+            // Only pass width and let MediaConvert auto-calculate height
+            $video['Width'] = $width;
+            $video['ScalingBehavior'] = 'DEFAULT';
+        } else {
+            // Only one dimension specified — auto-scale the other
+            if ($width) {
+                $video['Width'] = $width;
+            }
+            if ($height) {
+                $video['Height'] = $height;
+            }
         }
 
         // Frame rate
@@ -841,7 +865,7 @@ class ZencoderTranslatorService
     /**
      * Determine container format.
      */
-    private function getContainer(array $output, bool $isHls = false, bool $isDash = false): string
+    private function getContainer(array $output, bool $isHls = false, bool $isDash = false, bool $isAudioOnly = false): string
     {
         if ($isHls) {
             return 'M3U8';
@@ -853,6 +877,12 @@ class ZencoderTranslatorService
         if (!empty($output['format'])) {
             $format = strtolower($output['format']);
             return self::CONTAINER_MAP[$format] ?? 'MP4';
+        }
+
+        // Audio-only outputs: use RAW for MP3, MP4 for AAC
+        if ($isAudioOnly) {
+            $audioCodec = strtolower($output['audio_codec'] ?? '');
+            return in_array($audioCodec, ['mp3', 'vorbis']) ? 'RAW' : 'MP4';
         }
 
         return 'MP4';

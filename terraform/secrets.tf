@@ -39,6 +39,6 @@ resource "aws_secretsmanager_secret_version" "config" {
     WEBHOOK_TIMEOUT      = tostring(var.webhook_timeout)
     WEBHOOK_MAX_RETRIES  = tostring(var.webhook_max_retries)
     LOG_CHANNEL          = "stderr"
-    LOG_LEVEL            = "info"
+    LOG_LEVEL            = "debug"
   })
 }

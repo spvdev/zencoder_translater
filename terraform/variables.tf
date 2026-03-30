@@ -127,3 +127,10 @@ variable "webhook_max_retries" {
   type        = number
   default     = 3
 }
+
+# CloudFront
+variable "acm_certificate_arn" {
+  description = "ACM certificate ARN (must be in us-east-1 for CloudFront)"
+  type        = string
+  default     = "arn:aws:acm:us-east-1:517241097221:certificate/df10a332-2675-48b0-a41b-9ef017807671"
+}
