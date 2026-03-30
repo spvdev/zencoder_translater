@@ -16,6 +16,11 @@ resource "aws_ecr_repository" "main" {
 resource "aws_ecs_cluster" "main" {
   name = "${var.project_name}-cluster"
 
+  setting {
+    name  = "containerInsights"
+    value = "enhanced"
+  }
+
   tags = {
     Name = "${var.project_name}-cluster"
   }
