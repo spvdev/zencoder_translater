@@ -164,9 +164,7 @@ class WebhookService
             ],
         ];
 
-        if ($inputInfo) {
-            $payload['input'] = $inputInfo;
-        }
+        $payload['input'] = $inputInfo ?? new \stdClass();
 
         return $payload;
     }
@@ -189,9 +187,7 @@ class WebhookService
             ],
         ];
 
-        if ($inputInfo) {
-            $payload['input'] = $inputInfo;
-        }
+        $payload['input'] = $inputInfo ?? new \stdClass();
 
         return $payload;
     }
