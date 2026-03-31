@@ -25,7 +25,17 @@ output "aurora_reader_endpoint" {
 
 output "redis_endpoint" {
   description = "Redis endpoint"
-  value       = aws_elasticache_cluster.main.cache_nodes[0].address
+  value       = aws_elasticache_replication_group.main.primary_endpoint_address
+}
+
+output "db_secret_arn" {
+  description = "RDS-managed master password secret ARN"
+  value       = try(aws_rds_cluster.main.master_user_secret[0].secret_arn, "")
+}
+
+output "redis_secret_arn" {
+  description = "Redis AUTH token secret ARN"
+  value       = aws_secretsmanager_secret.redis_auth.arn
 }
 
 output "ecs_cluster_name" {

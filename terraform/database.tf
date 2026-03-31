@@ -15,8 +15,11 @@ resource "aws_rds_cluster" "main" {
   engine_version     = "8.0.mysql_aurora.3.08.0"
   database_name      = var.db_name
   master_username    = var.db_master_username
-  master_password    = var.db_master_password
   port               = 3306
+
+  # AWS-managed master password with automatic rotation
+  manage_master_user_password   = true
+  master_user_secret_kms_key_id = aws_kms_key.db_secret.key_id
 
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.db.id]
@@ -33,6 +36,20 @@ resource "aws_rds_cluster" "main" {
   tags = {
     Name = "${var.project_name}-aurora-cluster"
   }
+}
+
+# KMS key for RDS-managed secret encryption
+resource "aws_kms_key" "db_secret" {
+  description = "KMS key for Aurora master password secret"
+
+  tags = {
+    Name = "${var.project_name}-db-secret-key"
+  }
+}
+
+resource "aws_kms_alias" "db_secret" {
+  name          = "alias/${var.project_name}-db-secret"
+  target_key_id = aws_kms_key.db_secret.key_id
 }
 
 # Aurora Writer Instance

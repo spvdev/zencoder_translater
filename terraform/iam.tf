@@ -29,7 +29,16 @@ resource "aws_iam_role_policy" "ecs_execution_extras" {
       {
         Effect = "Allow"
         Action = "secretsmanager:GetSecretValue"
-        Resource = aws_secretsmanager_secret.config.arn
+        Resource = [
+          aws_secretsmanager_secret.config.arn,
+          try(aws_rds_cluster.main.master_user_secret[0].secret_arn, aws_secretsmanager_secret.config.arn),
+          aws_secretsmanager_secret.redis_auth.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = "kms:Decrypt"
+        Resource = aws_kms_key.db_secret.arn
       },
       {
         Effect = "Allow"
@@ -88,18 +97,23 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
           "s3:GetBucketLocation"
         ]
         Resource = [
-          aws_s3_bucket.input.arn,
-          "${aws_s3_bucket.input.arn}/*",
-          aws_s3_bucket.output.arn,
-          "${aws_s3_bucket.output.arn}/*",
-          "arn:aws:s3:::primarysite-test-zencoder-${var.account_id}",
-          "arn:aws:s3:::primarysite-test-zencoder-${var.account_id}/*"
+          "arn:aws:s3:::primarysite-prod-sorted",
+          "arn:aws:s3:::primarysite-prod-sorted/*"
         ]
       },
       {
-        Effect   = "Allow"
-        Action   = "secretsmanager:GetSecretValue"
-        Resource = aws_secretsmanager_secret.config.arn
+        Effect = "Allow"
+        Action = "secretsmanager:GetSecretValue"
+        Resource = [
+          aws_secretsmanager_secret.config.arn,
+          try(aws_rds_cluster.main.master_user_secret[0].secret_arn, aws_secretsmanager_secret.config.arn),
+          aws_secretsmanager_secret.redis_auth.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = "kms:Decrypt"
+        Resource = aws_kms_key.db_secret.arn
       },
       {
         Effect   = "Allow"
@@ -160,12 +174,8 @@ resource "aws_iam_role_policy" "mediaconvert_s3" {
         "s3:GetBucketLocation"
       ]
       Resource = [
-        aws_s3_bucket.input.arn,
-        "${aws_s3_bucket.input.arn}/*",
-        aws_s3_bucket.output.arn,
-        "${aws_s3_bucket.output.arn}/*",
-        "arn:aws:s3:::primarysite-test-zencoder-${var.account_id}",
-        "arn:aws:s3:::primarysite-test-zencoder-${var.account_id}/*"
+        "arn:aws:s3:::primarysite-prod-sorted",
+        "arn:aws:s3:::primarysite-prod-sorted/*"
       ]
     }]
   })

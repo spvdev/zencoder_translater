@@ -56,7 +56,19 @@ variable "ecs_memory" {
 variable "ecs_desired_count" {
   description = "Desired number of ECS tasks"
   type        = number
-  default     = 1
+  default     = 2
+}
+
+variable "ecs_min_count" {
+  description = "Minimum number of ECS tasks for autoscaling"
+  type        = number
+  default     = 2
+}
+
+variable "ecs_max_count" {
+  description = "Maximum number of ECS tasks for autoscaling"
+  type        = number
+  default     = 6
 }
 
 variable "container_port" {
@@ -82,12 +94,6 @@ variable "db_master_username" {
   description = "Database master username"
   type        = string
   default     = "dbadmin"
-}
-
-variable "db_master_password" {
-  description = "Database master password"
-  type        = string
-  sensitive   = true
 }
 
 variable "db_backup_retention" {
