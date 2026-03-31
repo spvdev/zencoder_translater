@@ -98,7 +98,9 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
         ]
         Resource = [
           "arn:aws:s3:::primarysite-prod-sorted",
-          "arn:aws:s3:::primarysite-prod-sorted/*"
+          "arn:aws:s3:::primarysite-prod-sorted/*",
+          "arn:aws:s3:::primary-podcast-assets",
+          "arn:aws:s3:::primary-podcast-assets/*"
         ]
       },
       {
@@ -175,7 +177,9 @@ resource "aws_iam_role_policy" "mediaconvert_s3" {
       ]
       Resource = [
         "arn:aws:s3:::primarysite-prod-sorted",
-        "arn:aws:s3:::primarysite-prod-sorted/*"
+        "arn:aws:s3:::primarysite-prod-sorted/*",
+        "arn:aws:s3:::primary-podcast-assets",
+        "arn:aws:s3:::primary-podcast-assets/*"
       ]
     }]
   })
