@@ -389,14 +389,20 @@ class ProcessJobCompletion implements ShouldQueue
             // Delete the intermediate frames from S3
             if (!empty($deleteObjects)) {
                 try {
-                    $s3->deleteObjects([
+                    $deleteResult = $s3->deleteObjects([
                         'Bucket' => $bucket,
                         'Delete' => [
                             'Objects' => array_map(fn($o) => ['Key' => $o['Key']], $deleteObjects),
-                            'Quiet' => true,
                         ],
                     ]);
-                    Log::debug("Cleaned up " . count($deleteObjects) . " intermediate thumbnail frames");
+                    $errors = $deleteResult['Errors'] ?? [];
+                    if (!empty($errors)) {
+                        Log::warning("Failed to delete " . count($errors) . " intermediate thumbnails", [
+                            'errors' => array_map(fn($e) => $e['Key'] . ': ' . $e['Code'], $errors),
+                        ]);
+                    } else {
+                        Log::debug("Cleaned up " . count($deleteObjects) . " intermediate thumbnail frames");
+                    }
                 } catch (\Exception $e) {
                     Log::warning("Failed to clean up intermediate thumbnails: {$e->getMessage()}");
                 }
